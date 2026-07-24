@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.2] - 2026-07-24 (richardsp fork)
+
+### Fixed
+- **Session learner no longer dies as "Hook cancelled" on exit** — the SessionEnd hook spawned a headless `claude -p` run taking 20–130s, but Claude Code kills SessionEnd hooks as soon as the CLI process exits, so the run was cancelled mid-flight (and took the `session-transcript.py` hook queued behind it down with it). `session-learner.py` now re-spawns itself with `start_new_session=True`, handing the hook payload over via `session-learner-payload.json` in the state dir, and returns in ~0.15s; the detached copy does the real work and survives the parent's teardown. PreCompact behaviour is unchanged. Falls back to the old inline run if the spawn fails.
+
 ## [0.8.1] - 2026-07-24 (richardsp fork)
 
 ### Fixed
