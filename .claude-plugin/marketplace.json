@@ -1,0 +1,18 @@
+{
+  "name": "richardsp",
+  "owner": {
+    "name": "Richard Espy",
+    "url": "https://github.com/richardsp"
+  },
+  "plugins": [
+    {
+      "name": "meridian",
+      "source": {
+        "source": "github",
+        "repo": "richardsp/meridian"
+      },
+      "description": "Agent enforcement framework — context injection, planning gates, session learning (fork of markmdev/meridian with stop-checklist config fixes)",
+      "version": "0.8.1"
+    }
+  ]
+}

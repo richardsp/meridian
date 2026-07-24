@@ -174,9 +174,26 @@ Current built-in options include:
 pebble_enabled: false
 stop_hook_min_actions: 15
 session_learner_mode: project
+
+# Stop-checklist tuning (0.8.1):
+# Only block the stop when uncommitted CODE files exist (docs/config-only
+# turns stop cleanly). Keys on git status by extension; fails open.
+stop_checklist_git_aware: false
+
+# Suppress the "Commit N uncommitted files" item — for PR-based workflows
+# where the agent must never commit directly. Pair with stop_checklist_extra.
+stop_checklist_commit_item: true
+
+# Custom checklist items appended after the built-ins.
+stop_checklist_extra:
+  - "Open a PR — never commit to main directly"
 ```
 
-Recent versions also support extra stop-checklist items and custom instruction reminders.
+Recent versions also support custom instruction reminders.
+
+Note: `stop_hook_min_actions` counts tool calls **cumulatively** since the
+checklist last fired (not per turn), so it is a cadence dial — raise it to
+make the checklist rarer, not to exempt small turns.
 
 ## Typical workflow
 

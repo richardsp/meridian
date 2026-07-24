@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.1] - 2026-07-24 (richardsp fork)
+
+### Fixed
+- **`stop_checklist_extra` actually works** — 0.8.0 advertised this config key, and `build_stop_prompt` reads it, but `get_project_config` never parsed it from `config.yaml`, so it could never take effect. Added `_parse_string_list` and wired it in.
+
+### Added
+- **`stop_checklist_git_aware`** (bool, default `false`) — when enabled, the stop checklist only blocks if `git status` shows uncommitted changes to code files (by extension; see `CODE_EXTENSIONS`). Docs/config-only turns stop cleanly instead of paying a forced extra turn. Heuristic keys on *uncommitted* state: work already committed to a branch this turn will not re-trigger the checklist. Fails open if git is unavailable. The skip resets the action counter so a later docs-only stop doesn't inherit the accumulated count.
+- **`stop_checklist_commit_item`** (bool, default `true`) — set `false` to suppress the "Commit N uncommitted files" item, for PR-based workflows where the agent must never commit directly. Pair with `stop_checklist_extra` to phrase the project's own delivery step (e.g. "Open a PR").
+- Self-hosting `.claude-plugin/marketplace.json` so this fork installs directly as marketplace `richardsp`.
+
 ## [0.8.0] - 2026-03-04
 
 ### Added

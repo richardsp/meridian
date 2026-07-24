@@ -21,6 +21,7 @@ from meridian_config import (
     log_hook_output,
     get_action_counter,
     reset_action_counter,
+    has_uncommitted_code_changes,
 )
 
 
@@ -58,6 +59,15 @@ def main():
         action_count = get_action_counter(base_dir)
         if action_count < min_actions:
             sys.exit(0)  # Allow stop — counter keeps accumulating
+
+    # Git-aware gate: when enabled, only block if uncommitted CODE changes
+    # exist. Docs/config-only work doesn't warrant the reviewer/tests
+    # checklist. Reset the counter so a later docs-only stop doesn't
+    # inherit this window's accumulated count.
+    if config.get('stop_checklist_git_aware', False):
+        if not has_uncommitted_code_changes(base_dir):
+            reset_action_counter(base_dir)
+            sys.exit(0)
 
     # Build the stop prompt using shared helper
     reason = build_stop_prompt(base_dir, config)
