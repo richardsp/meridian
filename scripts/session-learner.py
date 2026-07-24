@@ -10,6 +10,10 @@ Extracts session transcript and spawns a headless Claude session to:
 Fires on SessionEnd (session over) and PreCompact (checkpoint before context compaction).
 The lock prevents concurrent runs — if PreCompact is still running when SessionEnd fires, the
 SessionEnd run will skip (lock held). This is acceptable since PreCompact already captured the work.
+
+On SessionEnd the hook re-spawns itself detached and returns immediately: Claude Code cancels
+SessionEnd hooks when the CLI process exits ("Hook cancelled"), long before the headless
+`claude -p` run finishes, so the real work must outlive its parent.
 """
 
 import json
@@ -30,6 +34,8 @@ if is_headless():
 WORKSPACE_SYNC_LOCK = "workspace-sync.lock"
 SESSION_LEARNER_LOG = "session-learner.jsonl"
 SESSION_LEARNER_DEBUG_LOG = "session-learner.log"
+SESSION_LEARNER_PAYLOAD = "session-learner-payload.json"
+DETACH_ENV_FLAG = "MERIDIAN_LEARNER_DETACHED"
 MAX_LOG_ENTRIES = 50
 MIN_ENTRIES_THRESHOLD = 5  # Skip if fewer than this many meaningful entries
 
@@ -544,6 +550,27 @@ def log(project_dir: Path, message: str):
         pass
 
 
+def spawn_detached(input_data: dict, project_dir: Path) -> None:
+    """Re-run this script in a new session so it survives the parent CLI exiting."""
+    payload_path = state_path(project_dir, SESSION_LEARNER_PAYLOAD)
+    payload_path.parent.mkdir(parents=True, exist_ok=True)
+    payload_path.write_text(json.dumps(input_data))
+
+    env = dict(os.environ)
+    env[DETACH_ENV_FLAG] = "1"
+
+    with open(payload_path) as stdin_f, open(os.devnull, "w") as devnull:
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve())],
+            stdin=stdin_f,
+            stdout=devnull,
+            stderr=devnull,
+            env=env,
+            cwd=str(project_dir if project_dir.exists() else Path.cwd()),
+            start_new_session=True,
+        )
+
+
 def main():
     try:
         input_data = json.load(sys.stdin)
@@ -562,6 +589,17 @@ def main():
         log(project_dir, f"SKIP wrong event: {hook_event}")
         log_skip(project_dir, "wrong_event", hook_event=hook_event)
         sys.exit(0)
+
+    # SessionEnd hooks are killed when the CLI exits — hand the work to a detached
+    # copy of ourselves and return immediately so nothing gets cancelled mid-run.
+    if hook_event == "SessionEnd" and os.environ.get(DETACH_ENV_FLAG) != "1":
+        try:
+            spawn_detached(input_data, project_dir)
+        except Exception as e:
+            log(project_dir, f"detach failed ({type(e).__name__}: {e}) — running inline")
+        else:
+            log(project_dir, "detached run spawned — parent exiting")
+            sys.exit(0)
 
     lock_acquired = False
     try:
