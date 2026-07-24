@@ -175,10 +175,85 @@ def parse_bool(value: str, default: bool) -> bool:
 # Config key definitions: (yaml_key, config_key, type, default)
 _BOOL_KEYS = [
     ('pebble_enabled', 'pebble_enabled', False),
+    ('stop_checklist_commit_item', 'stop_checklist_commit_item', True),
+    ('stop_checklist_git_aware', 'stop_checklist_git_aware', False),
 ]
 _INT_KEYS = [
     ('stop_hook_min_actions', 'stop_hook_min_actions', 15),
 ]
+
+# File extensions treated as "code" by the git-aware stop-checklist gate.
+CODE_EXTENSIONS = frozenset({
+    '.py', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.vue', '.svelte',
+    '.go', '.rs', '.java', '.kt', '.rb', '.php', '.c', '.h', '.cpp', '.hpp',
+    '.cc', '.cs', '.swift', '.scala', '.sql', '.sh', '.bash', '.zsh',
+})
+
+
+def _parse_string_list(content: str, key: str) -> list[str]:
+    """Parse a simple YAML string list (no PyYAML dependency).
+
+    Expects format:
+        key:
+          - "First item"
+          - Second item
+    """
+    result = []
+    in_section = False
+
+    for line in content.split('\n'):
+        stripped = line.strip()
+
+        if stripped == f'{key}:':
+            in_section = True
+            continue
+
+        if not in_section:
+            continue
+
+        # Exit section on non-indented, non-empty line
+        if stripped and not line[0].isspace():
+            break
+
+        if stripped.startswith('- '):
+            item = stripped[2:].strip().strip('"\'')
+            if item:
+                result.append(item)
+
+    return result
+
+
+def has_uncommitted_code_changes(base_dir: Path) -> bool:
+    """True if git shows uncommitted changes (staged, unstaged, or untracked)
+    to files with a code extension. Used by the git-aware stop-checklist gate
+    so docs/config-only turns don't pay a blocked stop.
+
+    Fails open (returns True) if git is unavailable or errors — the checklist
+    should degrade to its pre-gate behavior, not silently disable itself.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=str(base_dir)
+        )
+        if result.returncode != 0:
+            return True
+        for line in result.stdout.splitlines():
+            if len(line) < 4:
+                continue
+            path = line[3:].strip()
+            # Renames report "old -> new"; the new path is what matters
+            if ' -> ' in path:
+                path = path.split(' -> ', 1)[1]
+            path = path.strip('"')
+            if Path(path).suffix.lower() in CODE_EXTENSIONS:
+                return True
+        return False
+    except Exception:
+        return True
 
 
 def _parse_extra_doc_dirs(content: str) -> list[dict]:
@@ -236,6 +311,9 @@ def get_project_config(base_dir: Path) -> dict:
         'stop_hook_min_actions': 15,
         'session_learner_mode': 'project',
         'extra_doc_dirs': [],
+        'stop_checklist_extra': [],
+        'stop_checklist_commit_item': True,
+        'stop_checklist_git_aware': False,
     }
 
     config_path = base_dir / MERIDIAN_CONFIG
@@ -263,6 +341,7 @@ def get_project_config(base_dir: Path) -> dict:
             config['session_learner_mode'] = sl_mode.lower()
 
         config['extra_doc_dirs'] = _parse_extra_doc_dirs(content)
+        config['stop_checklist_extra'] = _parse_string_list(content, 'stop_checklist_extra')
 
     except IOError:
         pass
@@ -986,20 +1065,23 @@ def build_stop_prompt(base_dir: Path, config: dict) -> str:
             if isinstance(item, str) and item.strip():
                 parts.append(f"- {item.strip()}")
 
-    # Check for uncommitted changes
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=str(base_dir)
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            changed_files = len([l for l in result.stdout.strip().split('\n') if l])
-            parts.append(f"- Commit {changed_files} uncommitted file{'s' if changed_files != 1 else ''}")
-    except Exception:
-        pass
+    # Check for uncommitted changes (suppressible for PR-based workflows
+    # where the agent must never commit directly — use stop_checklist_extra
+    # to phrase the project's own delivery step instead)
+    if config.get('stop_checklist_commit_item', True):
+        try:
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=str(base_dir)
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                changed_files = len([l for l in result.stdout.strip().split('\n') if l])
+                parts.append(f"- Commit {changed_files} uncommitted file{'s' if changed_files != 1 else ''}")
+        except Exception:
+            pass
 
     parts.append("")
     parts.append("Skip items you already completed. Do the rest now.")
