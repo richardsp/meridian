@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/action-counter.py\""
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/action-counter.sh\""
           }
         ]
       },
@@ -74,7 +74,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/action-counter.py\""
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/action-counter.sh\""
           },
           {
             "type": "command",

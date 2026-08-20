@@ -663,11 +663,40 @@ def scan_nested_git_repos(base_dir: Path, max_depth: int = 3) -> str:
 # =============================================================================
 # CONTEXT INJECTION HELPERS
 # =============================================================================
-def build_injected_context(base_dir: Path) -> tuple[str, dict]:
+
+# Hook stdout above roughly 8-10KB is NOT inlined into the conversation: the
+# harness keeps a ~2KB preview and persists the remainder to a file the model
+# never reads. Measured 2026-08-20 (grateplan-5iifs): 8KB inlined, 10KB
+# truncated. Budget below the verified-safe floor. Before this cap the injector
+# ran a 22.7KB median and a 343KB max, so most of what it built was discarded
+# silently -- the hook reports success either way.
+INJECTED_CONTEXT_BUDGET = 8000
+LAST_SESSION_BUDGET = 4000
+
+
+def _tail_within(text: str, budget: int) -> str:
+    """Trim TEXT to the last BUDGET chars, marking what was dropped.
+
+    Tail, not head: "pick up where you left off" wants the most recent dialogue.
+    The marker matters as much as the trim -- silent truncation is what made the
+    original bug invisible.
+    """
+    if len(text) <= budget:
+        return text
+    kept = text[-budget:]
+    nl = kept.find("\n")
+    if nl != -1:
+        kept = kept[nl + 1:]
+    return f"[... {len(text) - len(kept)} earlier chars omitted ...]\n{kept}"
+
+def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str, dict]:
     """Build the full injected context string with XML-wrapped file contents.
 
     Args:
         base_dir: Base directory of the project
+        source: SessionStart source (startup|clear|compact|resume). Network
+            lookups run only on startup -- SessionStart blocks, and on
+            compact/clear the conversation already carries its PR state.
 
     Returns:
         Tuple of (context_string, metadata_dict) where metadata tracks what was injected.
@@ -755,45 +784,50 @@ def build_injected_context(base_dir: Path) -> tuple[str, dict]:
         parts.append(nested_context)
         parts.append("")
 
-    # Recent PRs (open, with authors)
-    try:
-        result = subprocess.run(
-            ["gh", "pr", "list", "--state", "open", "--author", "@me", "--limit", "5",
-             "--json", "number,title,author,headRefName",
-             "--template", '{{range .}}#{{.number}} {{.title}} ({{.author.login}}) [{{.headRefName}}]\n{{end}}'],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=str(base_dir)
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            parts.append("## Open PRs")
-            parts.append("```")
-            parts.append(result.stdout.strip())
-            parts.append("```")
-            parts.append("")
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
+    # Network lookups: startup only. SessionStart BLOCKS, these are two
+    # gh round-trips at timeout=10 each, and SessionStart also fires on every
+    # compact -- 200 of 240 fires in the grateplan-8c6jf window. On
+    # compact/clear the conversation already knows its PR state.
+    if source == "startup":
+        # Recent PRs (open, with authors)
+        try:
+            result = subprocess.run(
+                ["gh", "pr", "list", "--state", "open", "--author", "@me", "--limit", "5",
+                 "--json", "number,title,author,headRefName",
+                 "--template", '{{range .}}#{{.number}} {{.title}} ({{.author.login}}) [{{.headRefName}}]\n{{end}}'],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=str(base_dir)
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts.append("## Open PRs")
+                parts.append("```")
+                parts.append(result.stdout.strip())
+                parts.append("```")
+                parts.append("")
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
 
-    # Recent PRs (merged, with authors)
-    try:
-        result = subprocess.run(
-            ["gh", "pr", "list", "--state", "merged", "--author", "@me", "--limit", "5",
-             "--json", "number,title,author,mergedAt",
-             "--template", '{{range .}}#{{.number}} {{.title}} ({{.author.login}}) merged {{timeago .mergedAt}}\n{{end}}'],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=str(base_dir)
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            parts.append("## Recently Merged PRs")
-            parts.append("```")
-            parts.append(result.stdout.strip())
-            parts.append("```")
-            parts.append("")
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
+        # Recent PRs (merged, with authors)
+        try:
+            result = subprocess.run(
+                ["gh", "pr", "list", "--state", "merged", "--author", "@me", "--limit", "5",
+                 "--json", "number,title,author,mergedAt",
+                 "--template", '{{range .}}#{{.number}} {{.title}} ({{.author.login}}) merged {{timeago .mergedAt}}\n{{end}}'],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=str(base_dir)
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts.append("## Recently Merged PRs")
+                parts.append("```")
+                parts.append(result.stdout.strip())
+                parts.append("```")
+                parts.append("")
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
 
     # Get project config for addons and pebble
     project_config = get_project_config(base_dir)
@@ -898,13 +932,18 @@ def build_injected_context(base_dir: Path) -> tuple[str, dict]:
             meta["errors"].append(f"Could not read WORKSPACE.md: {e}")
             pass
 
-    # Last session transcript (dialogue from previous session)
+    # Last session transcript (dialogue from previous session).
+    # Index recorded so the budget backstop trims the bulk ABOVE this point
+    # rather than eating the most recent dialogue (grateplan-5iifs).
+    protected_from = len(parts)
     last_session_path = state_path(base_dir, LAST_SESSION_FILE)
     if last_session_path.exists():
         try:
             content = last_session_path.read_text()
             if content.strip():
                 meta["last_session"] = True
+                meta["last_session_chars"] = len(content)
+                content = _tail_within(content, LAST_SESSION_BUDGET)
                 parts.append("**Previous session dialogue. Use this to understand what happened last session and pick up where you left off.**")
                 parts.append('<last-session>')
                 parts.append(content.rstrip())
@@ -927,7 +966,29 @@ def build_injected_context(base_dir: Path) -> tuple[str, dict]:
     # Footer
     parts.append("</injected-project-context>")
 
-    return "\n".join(parts), meta
+    result = "\n".join(parts)
+
+    # Backstop. last-session is capped individually above, but any section could
+    # grow; going over the budget means the harness swaps the whole payload for a
+    # ~2KB preview, so an over-budget build delivers LESS than a trimmed one.
+    if len(result) > INJECTED_CONTEXT_BUDGET:
+        # Trim the bulk that sits ABOVE the last-session block (docs indexes, the
+        # inlined operating manual, soul). Trimming the tail instead would delete
+        # the previous session's dialogue first -- the single thing this injection
+        # exists to carry across a compact.
+        protected = "\n".join(parts[protected_from:])
+        prefix = "\n".join(parts[:protected_from])
+        room = INJECTED_CONTEXT_BUDGET - len(protected) - 1
+        over = len(result) - INJECTED_CONTEXT_BUDGET
+        if room > 200:
+            marker = f"\n[... {over} chars of project context omitted: over the {INJECTED_CONTEXT_BUDGET}-char inline budget ...]"
+            result = prefix[: max(0, room - len(marker))] + marker + "\n" + protected
+        else:
+            # last-session alone fills the budget; fall back to trimming it too
+            result = _tail_within(result, INJECTED_CONTEXT_BUDGET)
+        meta["truncated_chars"] = over
+
+    return result, meta
 
 
 # =============================================================================

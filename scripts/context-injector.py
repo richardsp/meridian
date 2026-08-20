@@ -40,7 +40,7 @@ def main() -> int:
     base_dir = Path(claude_project_dir)
 
     # Build the injected context (reads last-session.md among other files)
-    injected_context, injection_meta = build_injected_context(base_dir)
+    injected_context, injection_meta = build_injected_context(base_dir, source)
 
     # Delete last-session.md after reading — we own its lifecycle now
     # (session-cleanup can't do it because hooks run in parallel = race condition)
