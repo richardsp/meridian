@@ -20,10 +20,8 @@ from meridian_config import is_headless, log_hook_output
 # Agents that require being in project root
 REVIEWER_AGENTS = {
     "plan-reviewer",
-    "code-reviewer",
     "code-health-reviewer",
     "architect",
-    "pebble-scaffolder",
     "implement",
 }
 

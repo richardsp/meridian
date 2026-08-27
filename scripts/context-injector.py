@@ -51,14 +51,14 @@ def main() -> int:
     except OSError:
         pass
 
-    # Save to state for debugging/inspection and session-learner
+    # Save to state for debugging/inspection
     sd = get_state_dir(base_dir)
     try:
         (sd / "injected-context").write_text(injected_context)
     except IOError:
         pass
 
-    # Save transcript path so session-learner can find it after /clear
+    # Save transcript path so session-transcript can find it after /clear
     transcript_path = input_data.get("transcript_path", "")
     if transcript_path:
         try:

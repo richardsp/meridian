@@ -3,7 +3,7 @@
 Stop Checklist — Stop Hook
 
 Prompts agent to complete checklist items (workspace, code review, tests, commits)
-before stopping. Skips if a work-until loop is active (loop hook handles everything).
+before stopping.
 """
 
 import json
@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent / "lib"))
 from meridian_config import (
     get_project_config,
     is_headless,
-    is_loop_active,
     build_stop_prompt,
     log_hook_output,
     get_action_counter,
@@ -45,10 +44,6 @@ def main():
     # If already prompted, allow stop and reset counter for next task
     if input_data.get("stop_hook_active"):
         reset_action_counter(base_dir)
-        sys.exit(0)
-
-    # If work-until loop is active, exit and let loop hook handle it
-    if is_loop_active(base_dir):
         sys.exit(0)
 
     config = get_project_config(base_dir)

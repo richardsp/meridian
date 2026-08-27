@@ -12,7 +12,7 @@ from pathlib import Path
 
 # Add lib to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "lib"))
-from meridian_config import get_project_config, is_headless, log_hook_output, state_path, ACTIVE_PLAN_FILE
+from meridian_config import is_headless, log_hook_output, state_path, ACTIVE_PLAN_FILE
 
 
 def main():
@@ -35,8 +35,6 @@ def main():
 
     base_dir = Path(claude_project_dir)
 
-    config = get_project_config(base_dir)
-    pebble_enabled = config.get('pebble_enabled', False)
 
     active_plan_path = str(state_path(base_dir, ACTIVE_PLAN_FILE))
 
@@ -44,9 +42,6 @@ def main():
         f"Plan approved. Archive it: `mkdir -p .meridian/plans && cp ~/.claude/plans/[slug].md .meridian/plans/descriptive-name.md`\n"
         f"Write the absolute path of the archived plan to `{active_plan_path}`."
     )
-
-    if pebble_enabled:
-        plan_instructions += "\nInvoke the `pebble-scaffolder` agent to document the work."
 
     reason = plan_instructions
 

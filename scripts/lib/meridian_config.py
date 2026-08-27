@@ -24,7 +24,7 @@ MERIDIAN_CONFIG = ".meridian/config.yaml"
 WORKSPACE_FILE = ".meridian/WORKSPACE.md"
 
 # Markers that identify system/hook noise rather than real user messages.
-# Used by session-transcript and session-learner to filter injected context.
+# Used by session-transcript to filter injected context.
 SYSTEM_NOISE_MARKERS = (
     "<system-reminder>",
     "<injected-project-context>",
@@ -58,7 +58,6 @@ PLAN_MODE_STATE = "plan-mode-state"
 ACTIVE_PLAN_FILE = "active-plan"
 INJECTED_FILES_LOG = "injected-files"
 HOOK_LOGS_DIR = "hook_logs"
-LOOP_STATE_FILE = "loop-state"
 LAST_SESSION_FILE = "last-session.md"
 TRANSCRIPT_PATH_STATE = "transcript-path"
 
@@ -309,7 +308,6 @@ def get_project_config(base_dir: Path) -> dict:
     config = {
         'pebble_enabled': False,
         'stop_hook_min_actions': 15,
-        'session_learner_mode': 'project',
         'extra_doc_dirs': [],
         'stop_checklist_extra': [],
         'stop_checklist_commit_item': True,
@@ -335,10 +333,6 @@ def get_project_config(base_dir: Path) -> dict:
                     config[config_key] = int(val)
                 except ValueError:
                     pass
-
-        sl_mode = get_config_value(content, 'session_learner_mode')
-        if sl_mode and sl_mode.lower() in ('project', 'assistant'):
-            config['session_learner_mode'] = sl_mode.lower()
 
         config['extra_doc_dirs'] = _parse_extra_doc_dirs(content)
         config['stop_checklist_extra'] = _parse_string_list(content, 'stop_checklist_extra')
@@ -953,16 +947,6 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
             meta["errors"].append(f"Could not read last-session.md: {e}")
             pass
 
-    # Active work-until loop (if any)
-    if is_loop_active(base_dir):
-        loop_state_path = state_path(base_dir, LOOP_STATE_FILE)
-        parts.append('<work-until-loop>')
-        parts.append("**A work-until loop is active.** You are in an iterative work loop.")
-        parts.append(f"Read `{loop_state_path}` for your task and current iteration.")
-        parts.append("See `.meridian/prompts/work-until-loop.md` for how the loop works.")
-        parts.append('</work-until-loop>')
-        parts.append("")
-
     # Footer
     parts.append("</injected-project-context>")
 
@@ -992,106 +976,6 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
 
 
 # =============================================================================
-# LOOP STATE HELPERS
-# =============================================================================
-def is_loop_active(base_dir: Path) -> bool:
-    """Check if a work-until loop is currently active."""
-    loop_state = state_path(base_dir, LOOP_STATE_FILE)
-    if not loop_state.exists():
-        return False
-    try:
-        content = loop_state.read_text().strip()
-        # Check for active: true in the state file
-        for line in content.split('\n'):
-            if line.strip().startswith('active:'):
-                value = line.split(':', 1)[1].strip().lower()
-                return value == 'true'
-    except IOError:
-        pass
-    return False
-
-
-def get_loop_state(base_dir: Path) -> dict | None:
-    """Get current loop state if active, None otherwise.
-
-    State file format:
-    ```
-    active: true
-    iteration: 1
-    max_iterations: 10
-    completion_phrase: "All tests pass"
-    started_at: "2026-01-04T12:00:00Z"
-    ---
-    The prompt text goes here
-    ```
-    """
-    loop_state = state_path(base_dir, LOOP_STATE_FILE)
-    if not loop_state.exists():
-        return None
-    try:
-        content = loop_state.read_text()
-
-        # Split on --- separator
-        if '---' in content:
-            parts = content.split('---', 1)
-            header = parts[0].strip()
-            prompt = parts[1].strip() if len(parts) > 1 else ''
-        else:
-            header = content.strip()
-            prompt = ''
-
-        state = {'prompt': prompt}
-        for line in header.split('\n'):
-            if ':' in line:
-                key, value = line.split(':', 1)
-                key = key.strip()
-                value = value.strip().strip("'\"")
-
-                if key == 'active':
-                    state['active'] = value.lower() == 'true'
-                elif key == 'iteration':
-                    state['iteration'] = int(value)
-                elif key == 'max_iterations':
-                    state['max_iterations'] = int(value)
-                elif key == 'completion_phrase':
-                    state['completion_phrase'] = value if value and value != 'null' else None
-                elif key == 'started_at':
-                    state['started_at'] = value
-        if state.get('active'):
-            return state
-    except (IOError, ValueError):
-        pass
-    return None
-
-
-def update_loop_iteration(base_dir: Path, new_iteration: int) -> bool:
-    """Update the iteration count in the loop state file."""
-    loop_state = state_path(base_dir, LOOP_STATE_FILE)
-    if not loop_state.exists():
-        return False
-    try:
-        content = loop_state.read_text()
-        lines = content.split('\n')
-        for i, line in enumerate(lines):
-            if line.strip().startswith('iteration:'):
-                lines[i] = f'iteration: {new_iteration}'
-                break
-        loop_state.write_text('\n'.join(lines))
-        return True
-    except IOError:
-        return False
-
-
-def clear_loop_state(base_dir: Path) -> bool:
-    """Remove the loop state file to end the loop."""
-    try:
-        state_path(base_dir, LOOP_STATE_FILE).unlink(missing_ok=True)
-        return True
-    except IOError:
-        return False
-
-
-# =============================================================================
 # STOP PROMPT BUILDER
 # =============================================================================
 
@@ -1112,7 +996,7 @@ def build_stop_prompt(base_dir: Path, config: dict) -> str:
 
     parts = ["**Complete these tasks:**\n"]
 
-    parts.append("- Run **code-reviewer** and **code-health-reviewer** in parallel if you made significant code changes")
+    parts.append("- Run **code-health-reviewer** if you made significant code changes")
 
     if pebble_enabled:
         parts.append("- Close/update Pebble issues for completed work")

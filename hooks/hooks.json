@@ -1,5 +1,5 @@
 {
-  "description": "Meridian agent enforcement — context injection, planning gates, session learning, quality checks",
+  "description": "Meridian agent enforcement \u2014 context injection, planning gates, session learning, quality checks",
   "hooks": {
     "SessionStart": [
       {
@@ -21,14 +21,6 @@
       }
     ],
     "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/work-until-stop.py\""
-          }
-        ]
-      },
       {
         "hooks": [
           {
@@ -95,26 +87,11 @@
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session-transcript.py\""
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session-learner.py\"",
-            "timeout": 180,
-            "async": true
-          }
-        ]
       }
     ],
     "SessionEnd": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session-learner.py\"",
-            "timeout": 180
-          },
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session-transcript.py\""

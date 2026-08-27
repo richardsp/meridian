@@ -27,7 +27,6 @@ Meridian closes those gaps without asking you to completely change how you work.
 - Smarter doc routing: docs in `.meridian/docs/` can advertise when they should be read
 - Instruction reinforcement: Meridian can remind Claude to follow your local guidance during long sessions
 - End-of-task quality pressure: the stop checklist nudges Claude to finish the boring but important parts
-- Session learning: a background learner can update workspace/docs based on what actually happened
 
 Meridian is intentionally opinionated, but it stays behind the scenes. You still talk to Claude normally.
 
@@ -171,9 +170,7 @@ Project-level behavior toggles.
 Current built-in options include:
 
 ```yaml
-pebble_enabled: false
 stop_hook_min_actions: 15
-session_learner_mode: project
 
 # Stop-checklist tuning (0.8.1):
 # Only block the stop when uncommitted CODE files exist (docs/config-only
