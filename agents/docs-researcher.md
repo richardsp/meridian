@@ -1,7 +1,7 @@
 ---
 name: docs-researcher
 description: Use BEFORE writing code that uses an external API, library, or tool not already documented in `.meridian/api-docs/`. Researches via web scraping and builds comprehensive knowledge docs with current versions, API operations, limits, and gotchas.
-tools: Read, Write, Edit, Bash, WebSearch, WebFetch, Skill, mcp__firecrawl
+tools: Read, Write, Edit, Bash, WebSearch, WebFetch, Skill
 model: opus
 color: yellow
 background: true

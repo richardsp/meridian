@@ -24,15 +24,11 @@ STATE_DIR = get_state_dir(PROJECT_DIR)
 # Note: last-session.md is NOT here — context-injector reads then deletes it
 STARTUP_DELETE = [
     "action-counter",
-
-    "plan-mode-state",
 ]
 
 # Files to delete on clear (user cleared conversation)
 CLEAR_DELETE = [
     "action-counter",
-
-    "plan-mode-state",
 ]
 
 

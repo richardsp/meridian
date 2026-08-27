@@ -54,7 +54,6 @@ def is_system_noise(text: str) -> bool:
 # State lives in ~/.meridian/state/<project-hash>/ so .meridian/ can be
 # symlinked across worktrees without sharing ephemeral session state.
 ACTION_COUNTER_FILE = "action-counter"
-PLAN_MODE_STATE = "plan-mode-state"
 ACTIVE_PLAN_FILE = "active-plan"
 INJECTED_FILES_LOG = "injected-files"
 HOOK_LOGS_DIR = "hook_logs"
