@@ -1,19 +1,23 @@
 # Changelog
 
+## [0.9.1] - 2026-08-27 (richardsp fork)
+
+### Removed
+- **`plan-mode-tracker.py` and its `UserPromptSubmit` registration** — the hook's only output was an instruction to activate the `/planning` skill, which 0.9.0 deleted. It fired on every plan-mode entry and the model got `Unknown skill: planning`. Nothing read its `plan-mode-state` file (`session-cleanup.py` only deleted it), so the script, the state entries in `session-cleanup.py`, and the now-unused `PLAN_MODE_STATE` constant all went with it. Claude Code injects its own Plan Workflow on plan-mode entry, so nothing replaces it.
+
+### Fixed
+- **`docs-researcher` no longer declares `mcp__firecrawl`** in its `tools:` list. The agent was configured against a server that is commonly disabled; it keeps `WebSearch`/`WebFetch`, and firecrawl remains reachable via ToolSearch where the server is enabled.
+- **`.claude-plugin/marketplace.json` advertised `0.8.2`** while `plugin.json` was at `0.9.0`. Both now track the same version.
+
 ## [0.9.0] - 2026-08-27 (richardsp fork)
 
 ### Removed
 - **Retired components pruned** — `agents/code-reviewer.md`, `agents/pebble-scaffolder.md`, `skills/planning/`, the whole `commands/` directory (`think`, `work-until`, `coderabbit-review`), `scripts/session-learner.py`, `scripts/work-until-stop.py`, and `scripts/lib/claude_runner.py`. ~2,000 lines out.
-- **`plan-mode-tracker.py` and its `UserPromptSubmit` registration** — the hook's only output was an instruction to activate the `/planning` skill, which this release deletes. It fired on every plan-mode entry and the model got `Unknown skill: planning`. Nothing read its `plan-mode-state` file (`session-cleanup.py` only deleted it), so the script, the state entries in `session-cleanup.py`, and the now-unused `PLAN_MODE_STATE` constant all went with it. Claude Code injects its own Plan Workflow on plan-mode entry, so nothing replaces it.
 - **19 `.meridian/config.yaml` keys are no longer read.** The surviving set is `pebble_enabled`, `stop_hook_min_actions`, `stop_checklist_commit_item`, `stop_checklist_git_aware`, `stop_checklist_extra`, and `extra_doc_dirs` — see `_BOOL_KEYS` / `_INT_KEYS` / `get_project_config` in `scripts/lib/meridian_config.py`. Projects carrying the retired keys (notably `session_context_max_lines`, `reminder_interval`, `plan_review_min_actions`) should prune them; they are inert, not merely defaulted.
 - **Context injection no longer includes the operating manual, `SOUL.md`, or `WORKSPACE.md`.**
 
 ### Changed
 - **The injected prefix is budgeted and ordered** so the docs index arrives complete instead of being truncated mid-table: `INJECTED_CONTEXT_BUDGET` (8,000 chars) and `LAST_SESSION_BUDGET` (4,000 chars) replace the former config-driven line caps, with per-section budgets for the docs and api-docs indexes.
-
-### Fixed
-- **`docs-researcher` no longer declares `mcp__firecrawl`** in its `tools:` list. The agent was configured against a server that is commonly disabled; it keeps `WebSearch`/`WebFetch`, and firecrawl remains reachable via ToolSearch where the server is enabled.
-- **`.claude-plugin/marketplace.json` advertised `0.8.2`** while `plugin.json` was at `0.9.0`. Both now track the same version.
 
 ## [0.8.3] - 2026-08-20 (richardsp fork)
 

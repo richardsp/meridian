@@ -1,6 +1,6 @@
 {
   "name": "meridian",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Agent enforcement framework - context injection, planning gates, stop checklist",
   "author": {
     "name": "Mark Morgan",
