@@ -514,30 +514,83 @@ def extract_frontmatter(file_path: Path) -> tuple[str, list[str]]:
     return summary, read_when
 
 
-def scan_docs_directory(dir_path: Path, base_dir: Path) -> str:
+def scan_docs_directory(dir_path: Path, base_dir: Path,
+                        budget: int | None = None) -> str:
     """Scan a directory for .md files with frontmatter, return formatted listing.
 
     Skips INDEX.md and README.md files. Returns empty string if no docs found.
+
+    If BUDGET is given the listing is fitted to it by reducing per-entry DETAIL,
+    never by dropping entries. That invariant is the point: the prefix used to be
+    tail-truncated mid-list, and a partial index looks complete -- the agent
+    cannot tell that six more docs exist, so it never reads them. A terse entry
+    still routes; a missing entry silently cannot.
     """
     if not dir_path.exists():
         return ""
 
-    entries = []
-
+    rows = []
     for md_file in sorted(dir_path.rglob("*.md")):
         if md_file.name in SKIP_NAMES:
             continue
-        rel_path = md_file.relative_to(base_dir)
+        rel_path = str(md_file.relative_to(base_dir))
         summary, read_when = extract_frontmatter(md_file)
-        if summary:
-            entry = f"- **{rel_path}** — {summary}"
-            if read_when:
-                entry += f"\n  Read when: {'; '.join(read_when)}"
-            entries.append(entry)
+        rows.append((rel_path, summary or "", read_when or []))
+
+    if not rows:
+        return ""
+
+    sum_budget = DOCS_ENTRY_SUMMARY_BUDGET
+    hint_budget = DOCS_ENTRY_READWHEN_BUDGET
+    if budget is not None:
+        # Room left for prose once every path is spelled out, split per entry.
+        fixed = sum(len(r[0]) + 8 for r in rows)
+        per_entry = max(0, (budget - fixed) // len(rows))
+        # Hints route, summaries describe -- so hints get the larger share.
+        sum_budget = min(sum_budget, max(0, per_entry // 3))
+        hint_budget = min(hint_budget, max(24, per_entry - sum_budget))
+
+    entries = []
+    for rel_path, summary, read_when in rows:
+        if summary and sum_budget > 0:
+            entry = f"- **{rel_path}** — {_clip(summary, sum_budget)}"
         else:
-            entries.append(f"- **{rel_path}** — *(missing summary frontmatter)*")
+            entry = f"- **{rel_path}**"
+        if read_when and hint_budget > 0:
+            entry += f"\n  Read when: {_clip_hints(read_when, hint_budget)}"
+        entries.append(entry)
 
     return "\n".join(entries)
+
+
+def _clip(text: str, budget: int) -> str:
+    """Trim TEXT to BUDGET chars on a word boundary, marking the cut."""
+    text = " ".join(text.split())
+    if len(text) <= budget:
+        return text
+    cut = text[:budget].rsplit(" ", 1)[0]
+    return f"{cut}…"
+
+
+def _clip_hints(hints: list, budget: int) -> str:
+    """Keep whole read_when hints until BUDGET is spent, then say how many remain.
+
+    Hints are the routing signal, so a PARTIAL hint is worse than a dropped one --
+    it can match on a fragment. Always keeps at least the first hint, and always
+    reports the remainder, so the listing never understates what a doc covers.
+    """
+    kept, used = [], 0
+    for h in hints:
+        h = " ".join(h.split())
+        if kept and used + len(h) + 2 > budget:
+            break
+        kept.append(h)
+        used += len(h) + 2
+    out = "; ".join(kept)
+    remaining = len(hints) - len(kept)
+    if remaining > 0:
+        out += f" (+{remaining} more)"
+    return out
 
 
 MAX_DOC_DEPTH = 3  # Max directory depth for project-wide frontmatter scanning
@@ -667,6 +720,26 @@ def scan_nested_git_repos(base_dir: Path, max_depth: int = 3) -> str:
 INJECTED_CONTEXT_BUDGET = 8000
 LAST_SESSION_BUDGET = 4000
 
+# Per-section budgets (grateplan-7wlmq, measured 2026-08-27).
+#
+# WHY THESE EXIST. The prefix competes with last-session for one 8000-char
+# budget, so the REAL prefix allowance is ~4000. Measured on a live repo the
+# injector assembled 23,791 chars: Recent Commits alone took 2,614 (20 commits)
+# and the .meridian/docs index took 10,060, so the two cheapest-to-reproduce
+# sections consumed the whole allowance between them and everything after
+# position 8,000 -- the operating manual, SOUL.md and WORKSPACE.md -- was built
+# from disk and silently discarded. Given the pre-cap 22.7KB median noted above,
+# those three have plausibly NEVER been delivered.
+#
+# Truncating the tail also cut the docs index mid-list, which is worse than
+# terse: a partial index looks complete, so the agent cannot tell that six more
+# docs exist. Hence DOCS_ENTRY_* trims each ENTRY and never drops one.
+DOCS_INDEX_BUDGET = 2200        # .meridian/docs — the routing table
+API_DOCS_INDEX_BUDGET = 400     # api-docs — mostly bare filenames
+DOCS_ENTRY_SUMMARY_BUDGET = 90  # prose; the read_when hints do the routing
+DOCS_ENTRY_READWHEN_BUDGET = 150
+RECENT_COMMITS_COUNT = 6        # `git log` is one command away
+
 
 def _tail_within(text: str, budget: int) -> str:
     """Trim TEXT to the last BUDGET chars, marking what was dropped.
@@ -720,6 +793,14 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
     parts.append(f"**Current datetime:** {now}")
     parts.append("")
 
+    # Git/PR state is assembled here but EMITTED LATER, after the docs index.
+    # Ordering is load-bearing: the prefix shares one budget with last-session,
+    # so whatever sits last is what the outer trim sacrifices. Commits and PRs
+    # are one `git log` / `gh pr list` away, while the docs index is the only
+    # record of WHICH docs exist and when to read them -- so the reproducible
+    # sections go last and absorb the trim (grateplan-7wlmq).
+    git_parts: list[str] = []
+
     # Uncommitted changes (git diff --stat)
     try:
         result = subprocess.run(
@@ -730,11 +811,11 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
             cwd=str(base_dir)
         )
         if result.returncode == 0 and result.stdout.strip():
-            parts.append("## Uncommitted Changes")
-            parts.append("```")
-            parts.append(result.stdout.strip())
-            parts.append("```")
-            parts.append("")
+            git_parts.append("## Uncommitted Changes")
+            git_parts.append("```")
+            git_parts.append(result.stdout.strip())
+            git_parts.append("```")
+            git_parts.append("")
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
 
@@ -750,7 +831,7 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
         )
         user_email = user_email_result.stdout.strip() if user_email_result.returncode == 0 else None
 
-        cmd = ["git", "log", "--format=%h%d %s (%cr)", "-20", "--all"]
+        cmd = ["git", "log", "--format=%h%d %s (%cr)", f"-{RECENT_COMMITS_COUNT}", "--all"]
         if user_email:
             cmd.append(f"--author={user_email}")
 
@@ -762,11 +843,11 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
             cwd=str(base_dir)
         )
         if result.returncode == 0 and result.stdout.strip():
-            parts.append("## Recent Commits")
-            parts.append("```")
-            parts.append(result.stdout.strip())
-            parts.append("```")
-            parts.append("")
+            git_parts.append("## Recent Commits")
+            git_parts.append("```")
+            git_parts.append(result.stdout.strip())
+            git_parts.append("```")
+            git_parts.append("")
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
 
@@ -775,8 +856,8 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
     if nested_context:
         # Count repos by counting "### " headers in the output
         meta["nested_repos"] = nested_context.count("### ")
-        parts.append(nested_context)
-        parts.append("")
+        git_parts.append(nested_context)
+        git_parts.append("")
 
     # Network lookups: startup only. SessionStart BLOCKS, these are two
     # gh round-trips at timeout=10 each, and SessionStart also fires on every
@@ -795,11 +876,11 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
                 cwd=str(base_dir)
             )
             if result.returncode == 0 and result.stdout.strip():
-                parts.append("## Open PRs")
-                parts.append("```")
-                parts.append(result.stdout.strip())
-                parts.append("```")
-                parts.append("")
+                git_parts.append("## Open PRs")
+                git_parts.append("```")
+                git_parts.append(result.stdout.strip())
+                git_parts.append("```")
+                git_parts.append("")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
@@ -815,11 +896,11 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
                 cwd=str(base_dir)
             )
             if result.returncode == 0 and result.stdout.strip():
-                parts.append("## Recently Merged PRs")
-                parts.append("```")
-                parts.append(result.stdout.strip())
-                parts.append("```")
-                parts.append("")
+                git_parts.append("## Recently Merged PRs")
+                git_parts.append("```")
+                git_parts.append(result.stdout.strip())
+                git_parts.append("```")
+                git_parts.append("")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
@@ -837,7 +918,10 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
 
     any_docs = False
     for dir_rel, header in doc_dirs:
-        listing = scan_docs_directory(base_dir / dir_rel, base_dir)
+        # api-docs are mostly bare filenames; the project docs carry the routing.
+        dir_budget = (API_DOCS_INDEX_BUDGET if dir_rel == ".meridian/api-docs"
+                      else DOCS_INDEX_BUDGET)
+        listing = scan_docs_directory(base_dir / dir_rel, base_dir, budget=dir_budget)
         if listing:
             any_docs = True
             # Count docs in this listing (each doc starts with "- **")
@@ -854,6 +938,9 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
     if any_docs:
         parts.append("When your task matches a \"Read when\" hint above, read that doc before coding. When you make changes that affect a documented topic, update the doc. When you discover something worth preserving — a decision, a gotcha, a new integration — create a new doc in `.meridian/docs/` with frontmatter (`summary`, `read_when`). Documentation is part of the work, not an afterthought.")
         parts.append("")
+
+    # Reproducible sections last -- see the git_parts note above.
+    parts.extend(git_parts)
 
     # Pebble live context (if enabled)
     if project_config.get('pebble_enabled', False):
