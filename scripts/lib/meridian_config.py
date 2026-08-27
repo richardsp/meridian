@@ -772,13 +772,13 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
     """
     parts = []
     meta: dict = {
-        "workspace": False,
+        "workspace": False,  # retained for compat; no longer injected
         "docs": 0,
         "api_docs": 0,
         "last_session": False,
         "pebble": False,
-        "manual": False,
-        "soul": False,
+        "manual": False,  # retained for compat; no longer injected
+        "soul": False,  # retained for compat; no longer injected
         "nested_repos": 0,
         "errors": [],
     }
@@ -967,51 +967,28 @@ def build_injected_context(base_dir: Path, source: str = "startup") -> tuple[str
             parts.append('</pebble-context>')
             parts.append("")
 
-    # Agent operating manual (authoritative — follow at all times)
-    manual_path = base_dir / ".meridian" / "prompts" / "agent-operating-manual.md"
-    if manual_path.exists():
-        try:
-            content = manual_path.read_text()
-            meta["manual"] = True
-            parts.append("**Agent operating manual. This is authoritative — follow these procedures at all times.**")
-            parts.append(f'<file path=".meridian/prompts/agent-operating-manual.md">')
-            parts.append(content.rstrip())
-            parts.append('</file>')
-            parts.append("")
-        except IOError as e:
-            meta["errors"].append(f"Could not read agent-operating-manual.md: {e}")
-            parts.append(f'<file path=".meridian/prompts/agent-operating-manual.md" error="Could not read file" />')
-            parts.append("")
-
-    # SOUL.md (agent identity and principles)
-    soul_path = base_dir / ".meridian" / "SOUL.md"
-    if soul_path.exists():
-        try:
-            content = soul_path.read_text()
-            meta["soul"] = True
-            parts.append("**Agent identity and principles. This defines who you are and how you work.**")
-            parts.append(f'<file path=".meridian/SOUL.md">')
-            parts.append(content.rstrip())
-            parts.append('</file>')
-            parts.append("")
-        except IOError as e:
-            meta["errors"].append(f"Could not read SOUL.md: {e}")
-            pass
-
-    # Workspace (slim current-state notepad — last for highest attention)
-    workspace_path = base_dir / WORKSPACE_FILE
-    if workspace_path.exists():
-        try:
-            content = workspace_path.read_text()
-            meta["workspace"] = True
-            parts.append("**Your current-state notepad. What's in progress, key decisions, and next steps. Not documentation — keep it slim.**")
-            parts.append(f'<file path="{WORKSPACE_FILE}">')
-            parts.append(content.rstrip())
-            parts.append('</file>')
-            parts.append("")
-        except IOError as e:
-            meta["errors"].append(f"Could not read WORKSPACE.md: {e}")
-            pass
+    # NOT INJECTED: agent-operating-manual.md, SOUL.md, and WORKSPACE.md.
+    #
+    # All three sat past the delivered budget and were read from disk every
+    # session only to be discarded. Given the 22.7KB pre-cap median noted at
+    # INJECTED_CONTEXT_BUDGET, they were plausibly NEVER delivered -- so removing
+    # them changes no behaviour, it just stops pretending (grateplan-7wlmq).
+    #
+    # Owner ruling 2026-08-27, after eight months and ~1,400 merged PRs of
+    # evidence that the project ran fine without them: the guidance that actually
+    # governs an agent here lives in CLAUDE.md, AGENTS.md, the project skills and
+    # `bd memories` -- all of which DO load. A second, undelivered copy of the
+    # same intent was worse than none, because the docs claimed it was in effect.
+    #
+    # WORKSPACE.md is the sharpest case: .meridian/WORKSPACE.md is a 675-char
+    # pointer stub reading "the canonical workspace is WORKSPACE.md at the repo
+    # root", and that root file is 52KB -- far past any injection budget. There
+    # was nothing to point at that would fit.
+    #
+    # To make one of these route again, give it frontmatter and put it in
+    # .meridian/docs/ -- the index costs ~150 chars and the agent reads the file
+    # when a read_when hint matches. That is strictly better than an injection
+    # that never arrives.
 
     # Last session transcript (dialogue from previous session).
     # Index recorded so the budget backstop trims the bulk ABOVE this point
